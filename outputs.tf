@@ -37,3 +37,8 @@ output "secret_ids" {
   description = "Secret Manager secret IDs, keyed by logical name."
   value       = { for k, s in module.secrets : k => s.secret_id }
 }
+
+output "wif_provider" {
+  description = "WIF provider resource path — use as the WIF_PROVIDER GitHub Actions secret. Null when github_repository is not set."
+  value       = one(module.workload_identity_github[*].provider_resource_path)
+}

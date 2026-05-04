@@ -4,6 +4,9 @@ region                    = "us-central1"
 environment               = "dev"
 terraform_service_account = "sa-terraform@datalab-project-472519.iam.gserviceaccount.com"
 
+# ─── Workload Identity Federation ────────────────────────────────────────────
+github_repository = "brunogdealmeida/datalab-infra-gcp"
+
 # ─── VPC (optional — set enable_vpc = true to create networking resources) ───
 enable_vpc = false
 # vpc_name           = "datalab-vpc"
@@ -106,10 +109,13 @@ enable_dataform = false
 # dataform_service_account  = "sa-dbt-dev@datalab-project-472519.iam.gserviceaccount.com"
 
 # ─── Secret Manager ──────────────────────────────────────────────────────────
+# secret_data is loaded from a local file so no manual gcloud step is needed.
+# The file must exist before running terraform apply.
+# NEVER commit files under secrets/ — they are git-ignored.
 secrets = {
   dbt-profiles = {
-    secret_id = "dbt-profiles-yml"
-    # secret_data = ""   # manage the value via gcloud or the GCP Console
+    secret_id   = "dbt-profiles-yml"
+    secret_file = "secrets/dev/profiles.yml"
     accessors = [
       "sa-dbt-dev@datalab-project-472519.iam.gserviceaccount.com",
     ]

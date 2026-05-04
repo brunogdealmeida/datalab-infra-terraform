@@ -15,6 +15,9 @@ dbt/target/
 dbt/dbt_packages/
 dbt/logs/
 
+# Local secret files loaded by file() in tfvars — never commit
+secrets/
+
 # Environment secrets
 .env
 *.pem

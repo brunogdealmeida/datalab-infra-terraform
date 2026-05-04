@@ -1,4 +1,4 @@
-# datalab-infra-gcp
+# datalab-infra-gcp - 1.0
 
 Terraform project for the Data Lab GCP infrastructure. Manages Cloud Run Jobs (DBT), BigQuery datasets, Dataform, Artifact Registry, Secret Manager, IAM, and an optional private VPC — all parameterized per environment.
 

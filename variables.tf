@@ -175,13 +175,22 @@ variable "dataform_service_account" {
   default     = ""
 }
 
+# ─── Workload Identity Federation ────────────────────────────────────────────
+
+variable "github_repository" {
+  description = "GitHub repository in 'org/repo' format. When set, a Workload Identity pool and provider are created so GitHub Actions can authenticate without SA keys."
+  type        = string
+  default     = ""
+}
+
 # ─── Secret Manager ──────────────────────────────────────────────────────────
 
 variable "secrets" {
   description = "Map of secrets to create in Secret Manager. Key is a logical name."
   type = map(object({
     secret_id   = string
-    secret_data = optional(string, "")
+    secret_data = optional(string, "")  # inline value; use -var in CI pipelines
+    secret_file = optional(string, "")  # path to a local file; evaluated at plan time
     accessors   = optional(list(string), [])
   }))
   default = {}

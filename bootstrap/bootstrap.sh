@@ -106,6 +106,7 @@ ROLES=(
   "roles/resourcemanager.projectIamAdmin"
   "roles/iam.securityAdmin"
   "roles/cloudbuild.builds.editor"
+  "roles/iam.workloadIdentityPoolAdmin"
 )
 
 for ROLE in "${ROLES[@]}"; do

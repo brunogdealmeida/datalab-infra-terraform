@@ -25,6 +25,19 @@ locals {
   ))
 
   vpc_connector_id = one(module.vpc[*].connector_id)
+
+  # Resolve secret_file → secret_data so file() is called in .tf, not .tfvars.
+  # secret_file takes precedence; falls back to secret_data if both are set.
+  secrets_resolved = {
+    for k, s in var.secrets : k => {
+      secret_id   = s.secret_id
+      # try() catches file-not-found gracefully: plan succeeds but no secret
+      # version is created until the file exists. Once the file is present,
+      # re-running apply pushes the version automatically.
+      secret_data = s.secret_file != "" ? try(file(s.secret_file), s.secret_data) : s.secret_data
+      accessors   = s.accessors
+    }
+  }
 }
 
 resource "google_project_service" "apis" {
@@ -158,11 +171,25 @@ module "dataform" {
   depends_on = [google_project_service.apis, module.iam]
 }
 
+# ─── Workload Identity Federation (optional) ─────────────────────────────────
+
+module "workload_identity_github" {
+  count  = var.github_repository != "" ? 1 : 0
+  source = "./modules/workload_identity_github"
+
+  project_id                = var.project_id
+  github_repository         = var.github_repository
+  service_account_email     = var.terraform_service_account
+  terraform_service_account = var.terraform_service_account
+
+  depends_on = [google_project_service.apis]
+}
+
 # ─── Secret Manager ──────────────────────────────────────────────────────────
 
 module "secrets" {
   source   = "./modules/secret_manager"
-  for_each = var.secrets
+  for_each = local.secrets_resolved
 
   project_id  = var.project_id
   secret_id   = each.value.secret_id
