@@ -1,0 +1,86 @@
+name: Terraform
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy (dev, staging, prod)"
+        required: true
+        default: dev
+        type: choice
+        options: [dev, staging, prod]
+      action:
+        description: "Terraform action"
+        required: true
+        default: plan
+        type: choice
+        options: [plan, apply, destroy]
+
+permissions:
+  id-token: write   # required for Workload Identity Federation
+  contents: read
+  pull-requests: write
+
+jobs:
+  terraform:
+    name: Terraform ${{ github.event.inputs.action || (github.ref == 'refs/heads/main' && 'apply' || 'plan') }}
+    runs-on: ubuntu-latest
+
+    env:
+      ENV: ${{ github.event.inputs.environment || 'dev' }}
+      ACTION: ${{ github.event.inputs.action || (github.ref == 'refs/heads/main' && 'apply' || 'plan') }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.TERRAFORM_SA_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.9"
+
+      - name: Terraform Init
+        run: make ENV=${{ env.ENV }} init
+
+      - name: Terraform Plan
+        id: plan
+        run: make ENV=${{ env.ENV }} plan
+        continue-on-error: ${{ env.ACTION != 'plan' }}
+
+      - name: Post plan to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### Terraform Plan — \`${{ env.ENV }}\`
+            \`\`\`
+            ${{ steps.plan.outputs.stdout }}
+            \`\`\`
+            `;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+      - name: Terraform Apply
+        if: env.ACTION == 'apply'
+        run: make ENV=${{ env.ENV }} apply
+
+      - name: Terraform Destroy
+        if: env.ACTION == 'destroy'
+        run: make ENV=${{ env.ENV }} destroy

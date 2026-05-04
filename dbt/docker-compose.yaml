@@ -1,0 +1,21 @@
+services:
+  dbt:
+    build:
+      context: .
+      args:
+        DBT_VERSION: "1.8.2"
+    volumes:
+      # Mount local profiles.yml so you don't need Secret Manager during local dev.
+      # Copy profiles.yml.example → profiles/profiles.yml and fill in your values.
+      - ./profiles/profiles.yml:/secrets/profiles.yml:ro
+      # Mount ADC so the container can authenticate as you
+      - ${HOME}/.config/gcloud/application_default_credentials.json:/root/.config/gcloud/application_default_credentials.json:ro
+      # Mount the project for live reloading without rebuilding
+      - ./models:/dbt/models
+      - ./macros:/dbt/macros
+      - ./seeds:/dbt/seeds
+    environment:
+      DBT_PROFILES_DIR: /secrets
+      GOOGLE_APPLICATION_CREDENTIALS: /root/.config/gcloud/application_default_credentials.json
+      GOOGLE_CLOUD_PROJECT: datalab-project-472519
+    command: run

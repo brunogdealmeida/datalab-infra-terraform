@@ -1,0 +1,8 @@
+profiles/profiles.yml
+.env
+*.pyc
+__pycache__
+.git
+target/
+dbt_packages/
+logs/

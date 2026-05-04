@@ -1,0 +1,21 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+*.tfplan
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# DBT credentials — never commit
+dbt/profiles/profiles.yml
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+
+# Environment secrets
+.env
+*.pem
+*.key

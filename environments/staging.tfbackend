@@ -1,0 +1,2 @@
+bucket = "datalab-terraform-state"
+prefix = "staging"
