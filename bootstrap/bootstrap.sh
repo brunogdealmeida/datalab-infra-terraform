@@ -1,157 +1,323 @@
 #!/usr/bin/env bash
-# bootstrap.sh — one-time setup for Terraform service account impersonation.
-#
-# Run this script once per GCP project, as a user with roles/owner.
-# After it completes, all Terraform runs use the SA instead of personal credentials.
-#
-# Usage:
-#   ./bootstrap/bootstrap.sh --project my-project-dev --env dev [--caller user:me@example.com]
-#
-# The --caller flag accepts any IAM member format:
-#   user:me@example.com
-#   group:devs@example.com
-#   serviceAccount:ci-runner@project.iam.gserviceaccount.com
-#   principalSet://iam.googleapis.com/...  (Workload Identity)
-#
-# If --caller is omitted, the currently active gcloud account is used.
-
 set -euo pipefail
 
-# ─── Argument parsing ─────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# GCP Terraform Bootstrap for GitHub Actions + Workload Identity Federation
+# -----------------------------------------------------------------------------
+# Idempotent bootstrap for:
+# - GCS Terraform state bucket
+# - Terraform service account
+# - Required APIs
+# - IAM permissions
+# - Workload Identity Pool
+# - GitHub OIDC Provider
+# - GitHub repository binding to impersonate the Terraform service account
+# -----------------------------------------------------------------------------
 
 PROJECT_ID=""
-ENV=""
-CALLER=""
-SA_NAME="sa-terraform"
+ENVIRONMENT="dev"
+REGION="us-central1"
+STATE_BUCKET=""
+GITHUB_REPO=""
+TERRAFORM_SA_ID="sa-terraform"
+POOL_ID="github-pool"
+PROVIDER_ID="github-provider"
+DRY_RUN="false"
 
 usage() {
-  grep '^#' "$0" | sed 's/^# \{0,1\}//'
-  exit 1
+  cat <<EOF
+Usage:
+  $0 \
+    --project PROJECT_ID \
+    --github-repo OWNER/REPO \
+    [--env dev] \
+    [--region us-central1] \
+    [--state-bucket BUCKET_NAME] \
+    [--terraform-sa-id sa-terraform] \
+    [--pool-id github-pool] \
+    [--provider-id github-provider] \
+    [--dry-run]
+
+Example:
+  $0 \
+    --project datalab-project-472519 \
+    --github-repo brunogdealmeida/datalab-infra-terraform \
+    --env dev \
+    --state-bucket datalab-terraform-state
+EOF
+}
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+run() {
+  if [[ "${DRY_RUN}" == "true" ]]; then
+    echo "[DRY-RUN] $*"
+  else
+    eval "$@"
+  fi
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --project) PROJECT_ID="$2"; shift 2 ;;
-    --env)     ENV="$2";        shift 2 ;;
-    --caller)  CALLER="$2";     shift 2 ;;
-    --sa-name) SA_NAME="$2";    shift 2 ;;
-    -h|--help) usage ;;
-    *) echo "Unknown argument: $1"; usage ;;
+    --project)
+      PROJECT_ID="$2"
+      shift 2
+      ;;
+    --env)
+      ENVIRONMENT="$2"
+      shift 2
+      ;;
+    --region)
+      REGION="$2"
+      shift 2
+      ;;
+    --state-bucket)
+      STATE_BUCKET="$2"
+      shift 2
+      ;;
+    --github-repo)
+      GITHUB_REPO="$2"
+      shift 2
+      ;;
+    --terraform-sa-id)
+      TERRAFORM_SA_ID="$2"
+      shift 2
+      ;;
+    --pool-id)
+      POOL_ID="$2"
+      shift 2
+      ;;
+    --provider-id)
+      PROVIDER_ID="$2"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN="true"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1"
+      usage
+      exit 1
+      ;;
   esac
 done
 
-if [[ -z "$PROJECT_ID" || -z "$ENV" ]]; then
-  echo "ERROR: --project and --env are required."
+if [[ -z "${PROJECT_ID}" ]]; then
+  echo "ERROR: --project is required."
   usage
+  exit 1
 fi
 
-SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
-
-# Default caller to the active gcloud identity
-if [[ -z "$CALLER" ]]; then
-  ACTIVE_ACCOUNT=$(gcloud config get-value account 2>/dev/null)
-  if [[ -z "$ACTIVE_ACCOUNT" ]]; then
-    echo "ERROR: no active gcloud account found. Run 'gcloud auth login' first."
-    exit 1
-  fi
-  CALLER="user:${ACTIVE_ACCOUNT}"
+if [[ -z "${GITHUB_REPO}" ]]; then
+  echo "ERROR: --github-repo is required. Expected format: owner/repository"
+  usage
+  exit 1
 fi
 
-# ─── Helpers ──────────────────────────────────────────────────────────────────
+if [[ ! "${GITHUB_REPO}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+  echo "ERROR: --github-repo must use the format owner/repository."
+  exit 1
+fi
 
-step() { echo; echo "──────────────────────────────────────────"; echo "  $*"; echo "──────────────────────────────────────────"; }
-ok()   { echo "  ✓ $*"; }
+if [[ -z "${STATE_BUCKET}" ]]; then
+  STATE_BUCKET="${PROJECT_ID}-terraform-state"
+fi
 
-# ─── 1. Enable prerequisite APIs ──────────────────────────────────────────────
+TERRAFORM_SA_EMAIL="${TERRAFORM_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
 
-step "1/5  Enabling prerequisite APIs in project '${PROJECT_ID}'"
+log "Using project: ${PROJECT_ID}"
+log "Using environment: ${ENVIRONMENT}"
+log "Using region: ${REGION}"
+log "Using state bucket: ${STATE_BUCKET}"
+log "Using GitHub repository: ${GITHUB_REPO}"
+log "Using Terraform service account: ${TERRAFORM_SA_EMAIL}"
+log "Using WIF pool/provider: ${POOL_ID}/${PROVIDER_ID}"
 
-gcloud services enable \
-  cloudresourcemanager.googleapis.com \
-  iam.googleapis.com \
-  iamcredentials.googleapis.com \
-  --project="${PROJECT_ID}"
+log "Setting active gcloud project..."
+run "gcloud config set project '${PROJECT_ID}'"
 
-ok "APIs enabled"
-
-# ─── 2. Create the Terraform service account ──────────────────────────────────
-
-step "2/5  Creating service account '${SA_EMAIL}'"
-
-if gcloud iam service-accounts describe "${SA_EMAIL}" --project="${PROJECT_ID}" &>/dev/null; then
-  ok "Service account already exists — skipping creation"
+log "Reading project number..."
+if [[ "${DRY_RUN}" == "true" ]]; then
+  PROJECT_NUMBER="<PROJECT_NUMBER>"
 else
-  gcloud iam service-accounts create "${SA_NAME}" \
-    --display-name="Terraform Service Account (${ENV})" \
-    --project="${PROJECT_ID}"
-  ok "Service account created"
+  PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
 fi
 
-# ─── 3. Grant project-level roles to the Terraform SA ─────────────────────────
-#
-# roles/editor                          — covers most resource CRUD
-# roles/iam.serviceAccountAdmin         — create / delete service accounts
-# roles/resourcemanager.projectIamAdmin — manage project-level IAM bindings
-# roles/iam.securityAdmin               — manage resource-level IAM (secrets, Cloud Run, etc.)
-#
-# If you prefer a single broad role, replace the four below with:
-#   roles/owner
-# ─────────────────────────────────────────────────────────────────────────────
+if [[ -z "${PROJECT_NUMBER}" ]]; then
+  echo "ERROR: Could not resolve project number for ${PROJECT_ID}."
+  exit 1
+fi
 
-step "3/5  Granting IAM roles to '${SA_EMAIL}'"
+log "Project number: ${PROJECT_NUMBER}"
 
-ROLES=(
-  "roles/editor"
-  "roles/iam.serviceAccountAdmin"
-  "roles/resourcemanager.projectIamAdmin"
-  "roles/iam.securityAdmin"
-  "roles/cloudbuild.builds.editor"
-  "roles/iam.workloadIdentityPoolAdmin"
+log "Enabling required APIs..."
+REQUIRED_APIS=(
+  "iam.googleapis.com"
+  "iamcredentials.googleapis.com"
+  "cloudresourcemanager.googleapis.com"
+  "storage.googleapis.com"
+  "sts.googleapis.com"
+  "serviceusage.googleapis.com"
+  "artifactregistry.googleapis.com"
+  "run.googleapis.com"
+  "bigquery.googleapis.com"
+  "secretmanager.googleapis.com"
+  "cloudscheduler.googleapis.com"
 )
 
-for ROLE in "${ROLES[@]}"; do
-  gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
-    --member="serviceAccount:${SA_EMAIL}" \
-    --role="${ROLE}" \
-    --condition=None \
-    --quiet
-  ok "${ROLE}"
+for api in "${REQUIRED_APIS[@]}"; do
+  log "Enabling API: ${api}"
+  run "gcloud services enable '${api}' --project='${PROJECT_ID}'"
 done
 
-# ─── 4. Grant the caller permission to impersonate the SA ─────────────────────
-
-step "4/5  Granting roles/iam.serviceAccountTokenCreator to '${CALLER}'"
-
-gcloud iam service-accounts add-iam-policy-binding "${SA_EMAIL}" \
-  --project="${PROJECT_ID}" \
-  --member="${CALLER}" \
-  --role="roles/iam.serviceAccountTokenCreator"
-
-ok "Impersonation granted"
-
-# ─── 5. Verify impersonation works ────────────────────────────────────────────
-
-step "5/5  Verifying impersonation"
-
-TOKEN=$(gcloud auth print-access-token --impersonate-service-account="${SA_EMAIL}" 2>/dev/null)
-if [[ -n "$TOKEN" ]]; then
-  ok "Impersonation verified successfully"
+log "Creating or reusing Terraform state bucket..."
+if [[ "${DRY_RUN}" == "true" ]]; then
+  echo "[DRY-RUN] Check/create bucket gs://${STATE_BUCKET}"
 else
-  echo "  WARNING: could not obtain an impersonation token."
-  echo "  IAM changes can take up to 60 seconds to propagate — try again shortly."
+  if gcloud storage buckets describe "gs://${STATE_BUCKET}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+    log "Bucket already exists: gs://${STATE_BUCKET}"
+  else
+    gcloud storage buckets create "gs://${STATE_BUCKET}" \
+      --project="${PROJECT_ID}" \
+      --location="${REGION}" \
+      --uniform-bucket-level-access
+  fi
 fi
 
-# ─── Done ─────────────────────────────────────────────────────────────────────
+log "Enabling versioning on state bucket..."
+run "gcloud storage buckets update 'gs://${STATE_BUCKET}' --versioning --project='${PROJECT_ID}'"
 
-echo
-echo "Bootstrap complete."
-echo
-echo "Next steps:"
-echo "  1. Update environments/${ENV}.tfvars:"
-echo "       terraform_service_account = \"${SA_EMAIL}\""
-echo
-echo "  2. Initialize and apply:"
-echo "       make ENV=${ENV} init"
-echo "       make ENV=${ENV} plan"
-echo "       make ENV=${ENV} apply"
-echo
+log "Creating or reusing Terraform service account..."
+if [[ "${DRY_RUN}" == "true" ]]; then
+  echo "[DRY-RUN] Check/create service account ${TERRAFORM_SA_EMAIL}"
+else
+  if gcloud iam service-accounts describe "${TERRAFORM_SA_EMAIL}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+    log "Service account already exists: ${TERRAFORM_SA_EMAIL}"
+  else
+    gcloud iam service-accounts create "${TERRAFORM_SA_ID}" \
+      --project="${PROJECT_ID}" \
+      --display-name="Terraform Service Account"
+  fi
+fi
+
+log "Granting Terraform service account access to state bucket..."
+BUCKET_ROLES=(
+  "roles/storage.objectAdmin"
+  "roles/storage.legacyBucketReader"
+)
+
+for role in "${BUCKET_ROLES[@]}"; do
+  log "Granting bucket role ${role}"
+  run "gcloud storage buckets add-iam-policy-binding 'gs://${STATE_BUCKET}' \
+    --member='serviceAccount:${TERRAFORM_SA_EMAIL}' \
+    --role='${role}' \
+    --project='${PROJECT_ID}' >/dev/null"
+done
+
+log "Granting project roles to Terraform service account..."
+PROJECT_ROLES=(
+  "roles/serviceusage.serviceUsageAdmin"
+  "roles/resourcemanager.projectIamAdmin"
+  "roles/iam.serviceAccountAdmin"
+  "roles/iam.serviceAccountUser"
+  "roles/iam.workloadIdentityPoolAdmin"
+  "roles/artifactregistry.admin"
+  "roles/run.admin"
+  "roles/bigquery.admin"
+  "roles/secretmanager.admin"
+  "roles/cloudscheduler.admin"
+)
+
+for role in "${PROJECT_ROLES[@]}"; do
+  log "Granting project role ${role}"
+  run "gcloud projects add-iam-policy-binding '${PROJECT_ID}' \
+    --member='serviceAccount:${TERRAFORM_SA_EMAIL}' \
+    --role='${role}' \
+    --condition=None >/dev/null"
+done
+
+log "Creating or reusing Workload Identity Pool..."
+if [[ "${DRY_RUN}" == "true" ]]; then
+  echo "[DRY-RUN] Check/create WIF pool ${POOL_ID}"
+else
+  if gcloud iam workload-identity-pools describe "${POOL_ID}" \
+      --project="${PROJECT_ID}" \
+      --location="global" >/dev/null 2>&1; then
+    log "WIF pool already exists: ${POOL_ID}"
+  else
+    gcloud iam workload-identity-pools create "${POOL_ID}" \
+      --project="${PROJECT_ID}" \
+      --location="global" \
+      --display-name="GitHub Actions Pool"
+  fi
+fi
+
+log "Creating or reusing GitHub OIDC Provider..."
+if [[ "${DRY_RUN}" == "true" ]]; then
+  echo "[DRY-RUN] Check/create WIF provider ${PROVIDER_ID}"
+else
+  if gcloud iam workload-identity-pools providers describe "${PROVIDER_ID}" \
+      --project="${PROJECT_ID}" \
+      --location="global" \
+      --workload-identity-pool="${POOL_ID}" >/dev/null 2>&1; then
+    log "WIF provider already exists: ${PROVIDER_ID}"
+  else
+    gcloud iam workload-identity-pools providers create-oidc "${PROVIDER_ID}" \
+      --project="${PROJECT_ID}" \
+      --location="global" \
+      --workload-identity-pool="${POOL_ID}" \
+      --display-name="GitHub Provider" \
+      --issuer-uri="https://token.actions.githubusercontent.com" \
+      --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository,attribute.ref=assertion.ref" \
+      --attribute-condition="attribute.repository=='${GITHUB_REPO}'"
+  fi
+fi
+
+PRINCIPAL_SET="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}/attribute.repository/${GITHUB_REPO}"
+
+log "Granting GitHub repository permission to impersonate Terraform service account..."
+run "gcloud iam service-accounts add-iam-policy-binding '${TERRAFORM_SA_EMAIL}' \
+  --project='${PROJECT_ID}' \
+  --role='roles/iam.workloadIdentityUser' \
+  --member='${PRINCIPAL_SET}' >/dev/null"
+
+WIF_PROVIDER="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}/providers/${PROVIDER_ID}"
+
+cat <<EOF
+
+================================================================================
+BOOTSTRAP COMPLETED
+================================================================================
+
+Add these GitHub Actions Variables:
+
+GCP_PROJECT_ID=${PROJECT_ID}
+TERRAFORM_SA_EMAIL=${TERRAFORM_SA_EMAIL}
+WIF_PROVIDER=${WIF_PROVIDER}
+
+Your Terraform backend config should be:
+
+bucket = "${STATE_BUCKET}"
+prefix = "${ENVIRONMENT}"
+
+Do NOT add impersonate_service_account to the backend config when using GitHub WIF.
+
+Next steps:
+1. Commit/push your Terraform changes.
+2. Add the GitHub Variables above.
+3. Run the GitHub Actions workflow with:
+   environment = ${ENVIRONMENT}
+   action      = plan
+4. If the plan succeeds, run:
+   environment = ${ENVIRONMENT}
+   action      = apply
+
+================================================================================
+EOF
