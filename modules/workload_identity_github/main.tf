@@ -45,3 +45,10 @@ resource "google_service_account_iam_member" "wif_impersonation" {
   role               = "roles/iam.workloadIdentityUser"
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.pool.name}/attribute.repository/${var.github_repository}"
 }
+
+resource "google_service_account_iam_member" "github_token_creator" {
+  service_account_id = "projects/${var.project_id}/serviceAccounts/${var.service_account_email}"
+  role               = "roles/iam.serviceAccountTokenCreator"
+
+  member = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.pool.name}/attribute.repository/${var.github_repository}"
+}
