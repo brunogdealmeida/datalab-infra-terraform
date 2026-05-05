@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.9.0"
+  required_version = ">= 1.3.0"
 
   required_providers {
     google = {
@@ -20,13 +20,11 @@ terraform {
 }
 
 provider "google" {
-  project                     = var.project_id
-  region                      = var.region
-  impersonate_service_account = var.terraform_service_account != "" ? var.terraform_service_account : null
+  project = var.project_id
+  region  = var.region
 }
 
 provider "google-beta" {
-  project                     = var.project_id
-  region                      = var.region
-  impersonate_service_account = var.terraform_service_account != "" ? var.terraform_service_account : null
+  project = var.project_id
+  region  = var.region
 }

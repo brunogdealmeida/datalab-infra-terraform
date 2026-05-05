@@ -2,7 +2,6 @@
 project_id                = "my-project-prod"
 region                    = "us-central1"
 environment               = "prod"
-terraform_service_account = "sa-terraform@my-project-prod.iam.gserviceaccount.com"
 
 # ─── VPC ─────────────────────────────────────────────────────────────────────
 enable_vpc         = true

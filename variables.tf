@@ -1,11 +1,5 @@
 # ─── Project ──────────────────────────────────────────────────────────────────
 
-variable "terraform_service_account" {
-  description = "Service account email Terraform will impersonate. Leave empty to use Application Default Credentials directly (not recommended for production)."
-  type        = string
-  default     = ""
-}
-
 variable "project_id" {
   description = "GCP project ID."
   type        = string
@@ -171,14 +165,6 @@ variable "dataform_default_branch" {
 
 variable "dataform_service_account" {
   description = "Service account email for Dataform workflow execution."
-  type        = string
-  default     = ""
-}
-
-# ─── Workload Identity Federation ────────────────────────────────────────────
-
-variable "github_repository" {
-  description = "GitHub repository in 'org/repo' format. When set, a Workload Identity pool and provider are created so GitHub Actions can authenticate without SA keys."
   type        = string
   default     = ""
 }

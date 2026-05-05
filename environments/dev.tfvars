@@ -2,10 +2,6 @@
 project_id                = "datalab-project-472519"
 region                    = "us-central1"
 environment               = "dev"
-terraform_service_account = "sa-terraform@datalab-project-472519.iam.gserviceaccount.com"
-
-# ─── Workload Identity Federation ────────────────────────────────────────────
-github_repository = "brunogdealmeida/datalab-infra-terraform"
 
 # ─── VPC (optional — set enable_vpc = true to create networking resources) ───
 enable_vpc = false

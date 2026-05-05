@@ -2,7 +2,6 @@
 project_id                = "my-project-staging"
 region                    = "us-central1"
 environment               = "staging"
-terraform_service_account = "sa-terraform@my-project-staging.iam.gserviceaccount.com"
 
 # ─── VPC (optional) ──────────────────────────────────────────────────────────
 enable_vpc         = true

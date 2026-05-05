@@ -1,6 +1,6 @@
 ENV     ?= dev
-TFVARS  = environments/$(ENV).tfvars
-BACKEND = environments/$(ENV).tfbackend
+TFVARS  := environments/$(ENV).tfvars
+BACKEND := environments/$(ENV).tfbackend
 
 .PHONY: init plan apply destroy fmt validate
 
