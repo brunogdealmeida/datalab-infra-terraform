@@ -1,4 +1,4 @@
-ENV    ?= dev
+ENV     ?= dev
 TFVARS  = environments/$(ENV).tfvars
 BACKEND = environments/$(ENV).tfbackend
 

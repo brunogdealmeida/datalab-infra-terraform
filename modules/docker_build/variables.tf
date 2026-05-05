@@ -17,3 +17,9 @@ variable "registry_location" {
   description = "Artifact Registry location (e.g. us-central1)."
   type        = string
 }
+
+variable "impersonate_service_account" {
+  description = "Service account email used by gcloud to submit Cloud Build. Leave empty to use the current ADC identity."
+  type        = string
+  default     = ""
+}

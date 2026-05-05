@@ -1,2 +1,3 @@
-bucket = "datalab-terraform-state"
-prefix = "dev"
+bucket                      = "datalab-terraform-state"
+prefix                      = "dev"
+impersonate_service_account = "sa-terraform@datalab-project-472519.iam.gserviceaccount.com"

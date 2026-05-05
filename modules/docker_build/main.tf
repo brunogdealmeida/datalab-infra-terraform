@@ -1,4 +1,6 @@
 locals {
+  impersonation_arg = var.impersonate_service_account != "" ? "--impersonate-service-account=${var.impersonate_service_account}" : ""
+
   tracked_files = sort(tolist(toset(concat(
     tolist(fileset(var.context_path, "Dockerfile")),
     tolist(fileset(var.context_path, "*.txt")),
@@ -30,6 +32,7 @@ resource "null_resource" "build_push" {
       gcloud builds submit \
         --tag ${var.image_url} \
         --project ${var.project_id} \
+        ${local.impersonation_arg} \
         ${var.context_path}
     EOT
   }

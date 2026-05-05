@@ -26,15 +26,12 @@ locals {
 
   vpc_connector_id = one(module.vpc[*].connector_id)
 
-  # Resolve secret_file → secret_data so file() is called in .tf, not .tfvars.
-  # secret_file takes precedence; falls back to secret_data if both are set.
+  # Resolve secret_file → secret_data so file() is evaluated in Terraform code, not in .tfvars.
+  # secret_file takes precedence; if the file is configured but missing, Terraform must fail fast.
   secrets_resolved = {
     for k, s in var.secrets : k => {
       secret_id   = s.secret_id
-      # try() catches file-not-found gracefully: plan succeeds but no secret
-      # version is created until the file exists. Once the file is present,
-      # re-running apply pushes the version automatically.
-      secret_data = s.secret_file != "" ? try(file(s.secret_file), s.secret_data) : s.secret_data
+      secret_data = s.secret_file != "" ? file(s.secret_file) : s.secret_data
       accessors   = s.accessors
     }
   }
@@ -83,10 +80,11 @@ module "docker_build" {
   source   = "./modules/docker_build"
   for_each = var.docker_builds
 
-  project_id        = var.project_id
-  context_path      = each.value.context_path
-  image_url         = "${module.artifact_registry.repository_url}/${each.key}:${each.value.image_tag}"
-  registry_location = var.region
+  project_id                   = var.project_id
+  context_path                 = each.value.context_path
+  image_url                    = "${module.artifact_registry.repository_url}/${each.key}:${each.value.image_tag}"
+  registry_location            = var.region
+  impersonate_service_account  = var.terraform_service_account
 
   depends_on = [module.artifact_registry]
 }
@@ -117,19 +115,20 @@ module "cloud_run_jobs" {
   timeout_seconds = each.value.timeout_seconds
   max_retries     = each.value.max_retries
   parallelism     = each.value.parallelism
-  task_count      = each.value.task_count
+  task_count                      = each.value.task_count
   env_vars                        = each.value.env_vars
   runtime_service_account_email   = each.value.service_account
   scheduler_service_account_email = each.value.service_account
   schedule                        = each.value.schedule
-  secret_mounts = each.value.secret_mounts
-  vpc_connector = local.vpc_connector_id
+  secret_mounts                   = each.value.secret_mounts
+  vpc_connector                   = local.vpc_connector_id
 
   depends_on = [
     google_project_service.apis,
     module.iam,
     module.vpc,
     module.docker_build,
+    module.secrets,
   ]
 }
 # ─── BigQuery ────────────────────────────────────────────────────────────────
@@ -169,6 +168,21 @@ module "dataform" {
   service_account  = var.dataform_service_account
 
   depends_on = [google_project_service.apis, module.iam]
+}
+
+
+# ─── Declarative imports for pre-existing Workload Identity resources ─────────
+# These blocks allow Terraform to adopt an existing GitHub WIF pool/provider
+# without Makefile import targets or manual terraform import commands.
+
+import {
+  to = module.workload_identity_github[0].google_iam_workload_identity_pool.pool
+  id = "projects/${var.project_id}/locations/global/workloadIdentityPools/github-pool"
+}
+
+import {
+  to = module.workload_identity_github[0].google_iam_workload_identity_pool_provider.provider
+  id = "projects/${var.project_id}/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
 }
 
 # ─── Workload Identity Federation (optional) ─────────────────────────────────

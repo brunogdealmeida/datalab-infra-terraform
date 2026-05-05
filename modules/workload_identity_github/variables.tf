@@ -4,8 +4,13 @@ variable "project_id" {
 }
 
 variable "github_repository" {
-  description = "GitHub repository in 'org/repo' format (e.g. 'myorg/myrepo')."
+  description = "GitHub repository in 'org/repo' format, for example 'myorg/myrepo'."
   type        = string
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", var.github_repository))
+    error_message = "github_repository must use the 'owner/repository' format."
+  }
 }
 
 variable "service_account_email" {
@@ -14,7 +19,7 @@ variable "service_account_email" {
 }
 
 variable "terraform_service_account" {
-  description = "Email of the Terraform service account. When set, grants it roles/iam.workloadIdentityPoolAdmin so it can create the pool."
+  description = "Email of the Terraform service account. When set, Terraform grants it roles/iam.workloadIdentityPoolAdmin."
   type        = string
   default     = ""
 }
