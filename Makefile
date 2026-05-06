@@ -11,10 +11,10 @@ plan:
 	terraform plan -var-file=$(TFVARS)
 
 apply:
-	terraform apply -var-file=$(TFVARS)
+	terraform apply -auto-approve -var-file=$(TFVARS)
 
 destroy:
-	terraform destroy -var-file=$(TFVARS)
+	terraform destroy -auto-approve -var-file=$(TFVARS)
 
 fmt:
 	terraform fmt -recursive

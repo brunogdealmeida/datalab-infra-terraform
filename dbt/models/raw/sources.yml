@@ -1,0 +1,10 @@
+version: 2
+
+sources:
+  - name: clients_source
+    description: "Raw client data ingested into BigQuery."
+    database: datalab-project-472519
+    schema: datalab-clients
+    tables:
+      - name: clients
+        description: "Source clients table."

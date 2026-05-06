@@ -12,6 +12,9 @@ clean-targets: ["target", "dbt_packages"]
 
 models:
   datalab:
+    raw:
+      +schema: raw
+      +materialized: table
     staging:
       +schema: staging
       +materialized: view
