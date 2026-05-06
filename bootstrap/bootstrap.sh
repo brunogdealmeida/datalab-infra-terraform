@@ -1,18 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# -----------------------------------------------------------------------------
+# =============================================================================
 # GCP Terraform Bootstrap for GitHub Actions + Workload Identity Federation
-# -----------------------------------------------------------------------------
-# Idempotent bootstrap for:
-# - GCS Terraform state bucket
-# - Terraform service account
-# - Required APIs
-# - IAM permissions
-# - Workload Identity Pool
-# - GitHub OIDC Provider
-# - GitHub repository binding to impersonate the Terraform service account
-# -----------------------------------------------------------------------------
+# =============================================================================
+#
+# Purpose:
+#   Bootstrap the minimum GCP foundation required for a Terraform CI/CD workflow
+#   running from GitHub Actions without service account JSON keys.
+#
+# Creates or reuses:
+#   - Required GCP APIs
+#   - Terraform state GCS bucket
+#   - Terraform service account
+#   - IAM roles for the Terraform service account
+#   - Workload Identity Pool
+#   - GitHub OIDC Workload Identity Provider
+#   - IAM binding allowing the GitHub repo to impersonate the Terraform SA
+#
+# This script is idempotent and safe to run multiple times.
+#
+# =============================================================================
 
 PROJECT_ID=""
 ENVIRONMENT="dev"
@@ -27,7 +35,7 @@ DRY_RUN="false"
 usage() {
   cat <<EOF
 Usage:
-  $0 \
+  ./bootstrap.sh \
     --project PROJECT_ID \
     --github-repo OWNER/REPO \
     [--env dev] \
@@ -39,7 +47,7 @@ Usage:
     [--dry-run]
 
 Example:
-  $0 \
+  ./bootstrap.sh \
     --project datalab-project-472519 \
     --github-repo brunogdealmeida/datalab-infra-terraform \
     --env dev \
@@ -51,12 +59,21 @@ log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 
+fail() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
 run() {
   if [[ "${DRY_RUN}" == "true" ]]; then
     echo "[DRY-RUN] $*"
   else
     eval "$@"
   fi
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || fail "Required command not found: $1"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -102,28 +119,19 @@ while [[ $# -gt 0 ]]; do
       exit 0
       ;;
     *)
-      echo "Unknown argument: $1"
       usage
-      exit 1
+      fail "Unknown argument: $1"
       ;;
   esac
 done
 
-if [[ -z "${PROJECT_ID}" ]]; then
-  echo "ERROR: --project is required."
-  usage
-  exit 1
-fi
+require_command gcloud
 
-if [[ -z "${GITHUB_REPO}" ]]; then
-  echo "ERROR: --github-repo is required. Expected format: owner/repository"
-  usage
-  exit 1
-fi
+[[ -n "${PROJECT_ID}" ]] || fail "--project is required."
+[[ -n "${GITHUB_REPO}" ]] || fail "--github-repo is required. Expected format: owner/repository."
 
 if [[ ! "${GITHUB_REPO}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
-  echo "ERROR: --github-repo must use the format owner/repository."
-  exit 1
+  fail "--github-repo must use the format owner/repository."
 fi
 
 if [[ -z "${STATE_BUCKET}" ]]; then
@@ -132,13 +140,13 @@ fi
 
 TERRAFORM_SA_EMAIL="${TERRAFORM_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
 
-log "Using project: ${PROJECT_ID}"
-log "Using environment: ${ENVIRONMENT}"
-log "Using region: ${REGION}"
-log "Using state bucket: ${STATE_BUCKET}"
-log "Using GitHub repository: ${GITHUB_REPO}"
-log "Using Terraform service account: ${TERRAFORM_SA_EMAIL}"
-log "Using WIF pool/provider: ${POOL_ID}/${PROVIDER_ID}"
+log "Project: ${PROJECT_ID}"
+log "Environment: ${ENVIRONMENT}"
+log "Region: ${REGION}"
+log "State bucket: ${STATE_BUCKET}"
+log "GitHub repository: ${GITHUB_REPO}"
+log "Terraform service account: ${TERRAFORM_SA_EMAIL}"
+log "WIF pool/provider: ${POOL_ID}/${PROVIDER_ID}"
 
 log "Setting active gcloud project..."
 run "gcloud config set project '${PROJECT_ID}'"
@@ -150,11 +158,7 @@ else
   PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
 fi
 
-if [[ -z "${PROJECT_NUMBER}" ]]; then
-  echo "ERROR: Could not resolve project number for ${PROJECT_ID}."
-  exit 1
-fi
-
+[[ -n "${PROJECT_NUMBER}" ]] || fail "Could not resolve project number for ${PROJECT_ID}."
 log "Project number: ${PROJECT_NUMBER}"
 
 log "Enabling required APIs..."
@@ -191,7 +195,7 @@ else
   fi
 fi
 
-log "Enabling versioning on state bucket..."
+log "Enabling versioning on Terraform state bucket..."
 run "gcloud storage buckets update 'gs://${STATE_BUCKET}' --versioning --project='${PROJECT_ID}'"
 
 log "Creating or reusing Terraform service account..."
@@ -214,7 +218,7 @@ BUCKET_ROLES=(
 )
 
 for role in "${BUCKET_ROLES[@]}"; do
-  log "Granting bucket role ${role}"
+  log "Granting bucket role: ${role}"
   run "gcloud storage buckets add-iam-policy-binding 'gs://${STATE_BUCKET}' \
     --member='serviceAccount:${TERRAFORM_SA_EMAIL}' \
     --role='${role}' \
@@ -236,48 +240,69 @@ PROJECT_ROLES=(
 )
 
 for role in "${PROJECT_ROLES[@]}"; do
-  log "Granting project role ${role}"
+  log "Granting project role: ${role}"
   run "gcloud projects add-iam-policy-binding '${PROJECT_ID}' \
     --member='serviceAccount:${TERRAFORM_SA_EMAIL}' \
     --role='${role}' \
     --condition=None >/dev/null"
 done
 
-log "Creating or reusing Workload Identity Pool..."
+log "Checking Workload Identity Pool state..."
 if [[ "${DRY_RUN}" == "true" ]]; then
-  echo "[DRY-RUN] Check/create WIF pool ${POOL_ID}"
+  POOL_STATE=""
+  echo "[DRY-RUN] Check WIF pool state: ${POOL_ID}"
 else
-  if gcloud iam workload-identity-pools describe "${POOL_ID}" \
-      --project="${PROJECT_ID}" \
-      --location="global" >/dev/null 2>&1; then
-    log "WIF pool already exists: ${POOL_ID}"
-  else
-    gcloud iam workload-identity-pools create "${POOL_ID}" \
-      --project="${PROJECT_ID}" \
-      --location="global" \
-      --display-name="GitHub Actions Pool"
-  fi
+  POOL_STATE="$(gcloud iam workload-identity-pools describe "${POOL_ID}" \
+    --project="${PROJECT_ID}" \
+    --location="global" \
+    --format="value(state)" 2>/dev/null || true)"
 fi
 
-log "Creating or reusing GitHub OIDC Provider..."
-if [[ "${DRY_RUN}" == "true" ]]; then
-  echo "[DRY-RUN] Check/create WIF provider ${PROVIDER_ID}"
+if [[ "${POOL_STATE}" == "ACTIVE" ]]; then
+  log "WIF pool already exists and is ACTIVE: ${POOL_ID}"
+elif [[ "${POOL_STATE}" == "DELETED" ]]; then
+  log "WIF pool exists but is DELETED. Undeleting: ${POOL_ID}"
+  run "gcloud iam workload-identity-pools undelete '${POOL_ID}' \
+    --project='${PROJECT_ID}' \
+    --location='global'"
 else
-  if gcloud iam workload-identity-pools providers describe "${PROVIDER_ID}" \
-      --project="${PROJECT_ID}" \
-      --location="global" \
-      --workload-identity-pool="${POOL_ID}" >/dev/null 2>&1; then
-    log "WIF provider already exists: ${PROVIDER_ID}"
-  else
-    gcloud iam workload-identity-pools providers create-oidc "${PROVIDER_ID}" \
-      --project="${PROJECT_ID}" \
-      --location="global" \
-      --workload-identity-pool="${POOL_ID}" \
-      --display-name="GitHub Provider" \
-      --issuer-uri="https://token.actions.githubusercontent.com" \
-      --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository,attribute.ref=assertion.ref" \
-      --attribute-condition="attribute.repository=='${GITHUB_REPO}'"
-  fi
+  log "Creating WIF pool: ${POOL_ID}"
+  run "gcloud iam workload-identity-pools create '${POOL_ID}' \
+    --project='${PROJECT_ID}' \
+    --location='global' \
+    --display-name='GitHub Actions Pool'"
+fi
+
+log "Checking GitHub OIDC Provider state..."
+if [[ "${DRY_RUN}" == "true" ]]; then
+  PROVIDER_STATE=""
+  echo "[DRY-RUN] Check WIF provider state: ${PROVIDER_ID}"
+else
+  PROVIDER_STATE="$(gcloud iam workload-identity-pools providers describe "${PROVIDER_ID}" \
+    --project="${PROJECT_ID}" \
+    --location="global" \
+    --workload-identity-pool="${POOL_ID}" \
+    --format="value(state)" 2>/dev/null || true)"
+fi
+
+if [[ "${PROVIDER_STATE}" == "ACTIVE" ]]; then
+  log "WIF provider already exists and is ACTIVE: ${PROVIDER_ID}"
+elif [[ "${PROVIDER_STATE}" == "DELETED" ]]; then
+  log "WIF provider exists but is DELETED. Undeleting: ${PROVIDER_ID}"
+  run "gcloud iam workload-identity-pools providers undelete '${PROVIDER_ID}' \
+    --project='${PROJECT_ID}' \
+    --location='global' \
+    --workload-identity-pool='${POOL_ID}'"
+else
+  log "Creating GitHub OIDC Provider: ${PROVIDER_ID}"
+  run "gcloud iam workload-identity-pools providers create-oidc '${PROVIDER_ID}' \
+    --project='${PROJECT_ID}' \
+    --location='global' \
+    --workload-identity-pool='${POOL_ID}' \
+    --display-name='GitHub Provider' \
+    --issuer-uri='https://token.actions.githubusercontent.com' \
+    --attribute-mapping='google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository,attribute.ref=assertion.ref' \
+    --attribute-condition='attribute.repository==\"${GITHUB_REPO}\"'"
 fi
 
 PRINCIPAL_SET="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}/attribute.repository/${GITHUB_REPO}"
@@ -296,26 +321,28 @@ cat <<EOF
 BOOTSTRAP COMPLETED
 ================================================================================
 
-Add these GitHub Actions Variables:
+GitHub Actions Variables:
 
 GCP_PROJECT_ID=${PROJECT_ID}
 TERRAFORM_SA_EMAIL=${TERRAFORM_SA_EMAIL}
 WIF_PROVIDER=${WIF_PROVIDER}
 
-Your Terraform backend config should be:
+Terraform backend config:
 
 bucket = "${STATE_BUCKET}"
 prefix = "${ENVIRONMENT}"
 
-Do NOT add impersonate_service_account to the backend config when using GitHub WIF.
+Important:
+- Do not use service account JSON keys.
+- Do not add impersonate_service_account to the backend config for this workflow.
+- GitHub Actions must authenticate with google-github-actions/auth before terraform init.
 
-Next steps:
-1. Commit/push your Terraform changes.
-2. Add the GitHub Variables above.
-3. Run the GitHub Actions workflow with:
+Next:
+1. Add/update the GitHub Actions variables above.
+2. Run GitHub Actions with:
    environment = ${ENVIRONMENT}
    action      = plan
-4. If the plan succeeds, run:
+3. If the plan succeeds, run:
    environment = ${ENVIRONMENT}
    action      = apply
 
