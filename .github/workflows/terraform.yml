@@ -49,8 +49,8 @@ jobs:
         id: auth
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
-          service_account: ${{ vars.TERRAFORM_SA_EMAIL }}
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.TERRAFORM_SA_EMAIL }}
           token_format: access_token
 
       - name: Set up Cloud SDK
