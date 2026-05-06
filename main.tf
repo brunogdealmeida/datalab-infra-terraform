@@ -130,7 +130,6 @@ module "cloud_run_jobs" {
     google_project_service.apis,
     module.iam,
     module.vpc,
-    module.docker_build,
     module.secrets,
   ]
 }

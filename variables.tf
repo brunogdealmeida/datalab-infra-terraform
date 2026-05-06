@@ -181,3 +181,9 @@ variable "secrets" {
   }))
   default = {}
 }
+
+variable "dbt_image" {
+  description = "Docker image used by the dbt Cloud Run Job."
+  type        = string
+  default     = ""
+}
