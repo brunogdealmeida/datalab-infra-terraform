@@ -78,18 +78,19 @@ module "artifact_registry" {
 }
 
 # ─── Docker Builds ────────────────────────────────────────────────────────────
+# Removido , essa responsabilidade agora é do pipeline de CI/CD (ex: GitHub Actions) para evitar que terraform precise de acesso de escrita no Artifact Registry.
 
-module "docker_build" {
-  source   = "./modules/docker_build"
-  for_each = var.docker_builds
-
-  project_id        = var.project_id
-  context_path      = each.value.context_path
-  image_url         = "${module.artifact_registry.repository_url}/${each.key}:${each.value.image_tag}"
-  registry_location = var.region
-
-  depends_on = [module.artifact_registry]
-}
+#module "docker_build" {
+#  source   = "./modules/docker_build"
+#  for_each = var.docker_builds
+#
+#  project_id        = var.project_id
+#  context_path      = each.value.context_path
+#  image_url         = "${module.artifact_registry.repository_url}/${each.key}:${each.value.image_tag}"
+#  registry_location = var.region
+#
+#  depends_on = [module.artifact_registry]
+#}
 
 # ─── IAM / Service Accounts ──────────────────────────────────────────────────
 

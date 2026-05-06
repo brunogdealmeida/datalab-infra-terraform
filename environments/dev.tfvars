@@ -2,6 +2,7 @@
 project_id                = "datalab-project-472519"
 region                    = "us-central1"
 environment               = "dev"
+dbt_image = "us-central1-docker.pkg.dev/datalab-project-472519/datalab-images/dbt:latest"
 
 # ─── VPC (optional — set enable_vpc = true to create networking resources) ───
 enable_vpc = false
