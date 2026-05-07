@@ -70,22 +70,12 @@ jobs:
       - name: Build and push dbt image
         run: |
           docker build \
-            -t ${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.DBT_IMAGE_NAME }}:${{ github.sha }} \
-            -t ${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.DBT_IMAGE_NAME }}:latest \
+            -t ${{ env.REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.DBT_IMAGE_NAME }}:${{ github.sha }} \
+            -t ${{ env.REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.DBT_IMAGE_NAME }}:latest \
             ./dbt
 
-          docker push ${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.DBT_IMAGE_NAME }}:${{ github.sha }}
-          docker push ${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.DBT_IMAGE_NAME }}:latest
-
-      - name: Add dbt profiles secret version
-        run: |
-          printf '%s' '${{ secrets.DBT_PROFILES_YML }}' > /tmp/profiles.yml
-
-          gcloud secrets versions add dbt-profiles-yml \
-            --data-file=/tmp/profiles.yml \
-            --project=${{ env.GCP_PROJECT_ID }}
-
-          rm -f /tmp/profiles.yml
+          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.DBT_IMAGE_NAME }}:${{ github.sha }}
+          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.DBT_IMAGE_NAME }}:latest
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
@@ -100,7 +90,32 @@ jobs:
         run: make ENV=${{ env.ENV }} plan IMAGE_TAG=${{ github.sha }}
         continue-on-error: ${{ env.ACTION != 'plan' }}
 
-      - name: Terraform Apply
+      # STEP 1: Create infra (including Secret Manager)
+      - name: Terraform Apply (infra)
+        if: env.ACTION == 'apply'
+        run: make ENV=${{ env.ENV }} apply IMAGE_TAG=${{ github.sha }}
+
+      # STEP 2: Create secret version
+      - name: Add dbt profiles secret version
+        if: env.ACTION == 'apply'
+        run: |
+          if [ -z "${{ secrets.DBT_PROFILES_YML }}" ]; then
+            echo "DBT_PROFILES_YML is empty or not available"
+            exit 1
+          fi
+
+          cat > /tmp/profiles.yml <<'EOF'
+          ${{ secrets.DBT_PROFILES_YML }}
+          EOF
+
+          gcloud secrets versions add dbt-profiles-yml \
+            --data-file=/tmp/profiles.yml \
+            --project=${{ env.GCP_PROJECT_ID }}
+
+          rm -f /tmp/profiles.yml
+
+      # STEP 3: Update Cloud Run with latest secret version
+      - name: Terraform Apply (cloud run update)
         if: env.ACTION == 'apply'
         run: make ENV=${{ env.ENV }} apply IMAGE_TAG=${{ github.sha }}
 
