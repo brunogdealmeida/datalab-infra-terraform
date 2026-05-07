@@ -8,10 +8,10 @@ init:
 	terraform init -backend-config=$(BACKEND) -reconfigure
 
 plan:
-	terraform plan -var-file=$(TFVARS)
+	terraform plan -var-file=environments/$(ENV).tfvars -var="dbt_image_tag=$(IMAGE_TAG)"
 
 apply:
-	terraform apply -auto-approve -var-file=$(TFVARS)
+	terraform apply -auto-approve -var-file=environments/$(ENV).tfvars -var="dbt_image_tag=$(IMAGE_TAG)"
 
 destroy:
 	terraform destroy -auto-approve -var-file=$(TFVARS)

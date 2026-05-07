@@ -109,16 +109,16 @@ module "cloud_run_jobs" {
   source   = "./modules/cloud_run_job"
   for_each = var.cloud_run_jobs
 
-  project_id      = var.project_id
-  region          = var.region
-  job_name        = each.key
-  image           = each.value.image
-  cpu             = each.value.cpu
-  memory          = each.value.memory
-  timeout_seconds = each.value.timeout_seconds
-  max_retries     = each.value.max_retries
-  parallelism     = each.value.parallelism
-  task_count      = each.value.task_count
+  project_id       = var.project_id
+  region           = var.region
+  job_name         = each.key
+  image = each.key == "dbt-run" ? "us-central1-docker.pkg.dev/${var.project_id}/${var.repository_id}/dbt:${var.dbt_image_tag}" :each.value.image
+  cpu              = each.value.cpu
+  memory           = each.value.memory
+  timeout_seconds  = each.value.timeout_seconds
+  max_retries      = each.value.max_retries
+  parallelism      = each.value.parallelism
+  task_count       = each.value.task_count
   env_vars                        = each.value.env_vars
   runtime_service_account_email   = each.value.service_account
   scheduler_service_account_email = each.value.service_account

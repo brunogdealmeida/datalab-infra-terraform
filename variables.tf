@@ -187,3 +187,9 @@ variable "dbt_image" {
   type        = string
   default     = ""
 }
+
+variable "dbt_image_tag" {
+  description = "Immutable Docker image tag used by the dbt Cloud Run Job."
+  type        = string
+  default     = "latest"
+}

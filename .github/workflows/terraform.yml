@@ -87,12 +87,12 @@ jobs:
 
       - name: Terraform Plan
         id: plan
-        run: make ENV=${{ env.ENV }} plan
+        run: make ENV=${{ env.ENV }} plan IMAGE_TAG=${{ github.sha }}
         continue-on-error: ${{ env.ACTION != 'plan' }}
 
       - name: Terraform Apply
         if: env.ACTION == 'apply'
-        run: make ENV=${{ env.ENV }} apply
+        run: make ENV=${{ env.ENV }} apply IMAGE_TAG=${{ github.sha }}
 
       - name: Terraform Destroy
         if: env.ACTION == 'destroy'
