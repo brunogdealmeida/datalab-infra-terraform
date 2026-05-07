@@ -4,7 +4,7 @@ sources:
   - name: clients_source
     description: "Raw client data ingested into BigQuery."
     database: datalab-project-472519
-    schema: datalab-clients
+    schema: datalab_clients
     tables:
       - name: clients
         description: "Source clients table."
