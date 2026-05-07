@@ -181,7 +181,7 @@ module "secrets" {
 
   project_id  = var.project_id
   secret_id   = each.value.secret_id
-  secret_data = each.value.secret_data
+  #secret_data = each.value.secret_data
   accessors   = each.value.accessors
 
   depends_on = [google_project_service.apis]
