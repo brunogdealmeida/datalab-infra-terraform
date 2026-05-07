@@ -175,7 +175,7 @@ variable "secrets" {
   description = "Map of secrets to create in Secret Manager. Key is a logical name."
   type = map(object({
     secret_id   = string
-    secret_data = optional(string, "")  # inline value; use -var in CI pipelines
+    #secret_data = optional(string, "")  # inline value; use -var in CI pipelines
     secret_file = optional(string, "")  # path to a local file; evaluated at plan time
     accessors   = optional(list(string), [])
   }))

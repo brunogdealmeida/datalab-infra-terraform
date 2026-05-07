@@ -118,7 +118,7 @@ module "cloud_run_jobs" {
   timeout_seconds  = each.value.timeout_seconds
   max_retries      = each.value.max_retries
   parallelism      = each.value.parallelism
-  task_count       = each.value.task_count
+  task_count      = each.value.task_count
   env_vars                        = each.value.env_vars
   runtime_service_account_email   = each.value.service_account
   scheduler_service_account_email = each.value.service_account

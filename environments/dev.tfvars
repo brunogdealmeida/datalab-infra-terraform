@@ -109,12 +109,12 @@ enable_dataform = false
 # secret_data is loaded from a local file so no manual gcloud step is needed.
 # The file must exist before running terraform apply.
 # NEVER commit files under secrets/ — they are git-ignored.
-secrets = {
-  dbt-profiles = {
-    secret_id   = "dbt-profiles-yml"
-    secret_file = "secrets/dev/profiles.yml"
-    accessors = [
-      "sa-dbt-dev@datalab-project-472519.iam.gserviceaccount.com",
-    ]
-  }
-}
+#secrets = {
+#  dbt-profiles = {
+#    secret_id   = "dbt-profiles-yml"
+#    secret_file = "secrets/dev/profiles.yml"
+#    accessors = [
+#      "sa-dbt-dev@datalab-project-472519.iam.gserviceaccount.com",
+#    ]
+#  }
+#}

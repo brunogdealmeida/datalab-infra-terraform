@@ -77,6 +77,16 @@ jobs:
           docker push ${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.DBT_IMAGE_NAME }}:${{ github.sha }}
           docker push ${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.DBT_IMAGE_NAME }}:latest
 
+      - name: Add dbt profiles secret version
+        run: |
+          printf '%s' '${{ secrets.DBT_PROFILES_YML }}' > /tmp/profiles.yml
+
+          gcloud secrets versions add dbt-profiles-yml \
+            --data-file=/tmp/profiles.yml \
+            --project=${{ env.GCP_PROJECT_ID }}
+
+          rm -f /tmp/profiles.yml
+
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
         with:
