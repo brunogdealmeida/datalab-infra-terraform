@@ -90,12 +90,15 @@ jobs:
         run: make ENV=${{ env.ENV }} plan IMAGE_TAG=${{ github.sha }}
         continue-on-error: ${{ env.ACTION != 'plan' }}
 
-      # STEP 1: Create infra (including Secret Manager)
-      - name: Terraform Apply (infra)
+      - name: Ensure dbt profiles secret exists
         if: env.ACTION == 'apply'
-        run: make ENV=${{ env.ENV }} apply IMAGE_TAG=${{ github.sha }}
+        run: |
+          if ! gcloud secrets describe dbt-profiles-yml --project=${{ env.GCP_PROJECT_ID }} >/dev/null 2>&1; then
+            gcloud secrets create dbt-profiles-yml \
+              --replication-policy="automatic" \
+              --project=${{ env.GCP_PROJECT_ID }}
+          fi
 
-      # STEP 2: Create secret version
       - name: Add dbt profiles secret version
         if: env.ACTION == 'apply'
         run: |
@@ -114,8 +117,7 @@ jobs:
 
           rm -f /tmp/profiles.yml
 
-      # STEP 3: Update Cloud Run with latest secret version
-      - name: Terraform Apply (cloud run update)
+      - name: Terraform Apply
         if: env.ACTION == 'apply'
         run: make ENV=${{ env.ENV }} apply IMAGE_TAG=${{ github.sha }}
 
